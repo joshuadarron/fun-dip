@@ -1,0 +1,84 @@
+{
+  "components": [
+    {
+      "id": "webhook_1",
+      "provider": "webhook",
+      "config": {
+        "hideForm": true,
+        "mode": "Source",
+        "parameters": {},
+        "type": "webhook"
+      }
+    },
+    {
+      "id": "agent_profile",
+      "provider": "agent_deepagent",
+      "config": {
+        "advanced_mode": true,
+        "agent_description": "Builds and edits a startup profile conversationally. Reads and writes the Ghost database via the attached MCP client. Honors the create/update/read mode contract in .claude/docs/PIPELINE_CONTRACTS.md.",
+        "system_prompt": "You are the Fundip profile agent. You receive a single JSON document on the questions lane with shape { profile_id, mode, facts?, context? }. The mode is one of create, update, read.\n\nRules:\n1. Use the Ghost MCP tools to read or write profiles and profile_narratives. Never hallucinate fields. Leave unknown fields blank.\n2. create: initialize the profile row if it does not already exist. If context is supplied, extract only fields the context explicitly states.\n3. update: apply each fact (field, value, source) to the profiles row. Stated facts (source chat or import) take precedence over inferred values. Never overwrite a previously stated field with an inferred value. Append a narrative paragraph describing the change to profile_narratives.\n4. read: return the current profile_summary. Do not write anything.\n5. Output is a single JSON object matching ProfilePipelineOutput: { status: 'ok', profile_id, delta: { fields_updated, fields_added, narrative_appended }, profile_summary }. Emit via the answers lane as a JSON string.\n6. No em-dashes in profile_summary or any narrative text. Use commas, colons, periods, or parentheses.",
+        "parameters": {}
+      },
+      "input": [
+        {
+          "lane": "questions",
+          "from": "webhook_1"
+        }
+      ]
+    },
+    {
+      "id": "llm_1",
+      "provider": "llm_openai",
+      "config": {
+        "profile": "openai-4o",
+        "openai-4o": {
+          "apikey": "${ROCKETRIDE_OPENAI_KEY}",
+          "model": "gpt-4o-mini"
+        },
+        "parameters": {}
+      },
+      "control": [
+        {
+          "classType": "llm",
+          "from": "agent_profile"
+        }
+      ]
+    },
+    {
+      "id": "mcp_ghost",
+      "provider": "mcp_client",
+      "config": {
+        "type": "mcp_client",
+        "serverName": "ghost",
+        "transport": "streamable-http",
+        "http": {
+          "endpoint": "${ROCKETRIDE_GHOST_MCP_URL}",
+          "bearer": "${ROCKETRIDE_GHOST_MCP_TOKEN}",
+          "headers": {}
+        }
+      },
+      "control": [
+        {
+          "classType": "tool",
+          "from": "agent_profile"
+        }
+      ]
+    },
+    {
+      "id": "response_1",
+      "provider": "response_answers",
+      "config": {
+        "laneName": "answers"
+      },
+      "input": [
+        {
+          "lane": "answers",
+          "from": "agent_profile"
+        }
+      ]
+    }
+  ],
+  "project_id": "b9e3c24d-4f7e-4d11-8b73-9f0a1c2d3e4f",
+  "viewport": { "x": 0, "y": 0, "zoom": 1 },
+  "version": 1
+}
