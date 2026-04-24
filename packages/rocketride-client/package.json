@@ -1,0 +1,26 @@
+{
+  "name": "@fundip/rocketride-client",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "build": "echo \"source-only package, no build\" && exit 0"
+  },
+  "dependencies": {
+    "@fundip/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.6"
+  }
+}

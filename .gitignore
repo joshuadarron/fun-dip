@@ -1,8 +1,18 @@
 .env
 .env.local
 .env.*.local
+
+# Dependencies & build artifacts
 node_modules
 dist
+build
+coverage
+.vite
+.turbo
+*.tsbuildinfo
+.husky/_
+
+# Editor / OS
 .DS_Store
 *.log
 

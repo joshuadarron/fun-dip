@@ -1,7 +1,13 @@
 :root {
   font-family:
-    "Inter", "Linear Sans", ui-sans-serif, system-ui, -apple-system,
-    BlinkMacSystemFont, "Segoe UI", sans-serif;
+    "Inter",
+    "Linear Sans",
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
   color: var(--ink);
   background: var(--platform);
   font-synthesis: none;
@@ -74,8 +80,7 @@ button {
   height: 100dvh;
   overflow: hidden;
   background:
-    radial-gradient(circle at 80% 10%, rgb(255 242 231 / 0.72), transparent 32rem),
-    var(--platform);
+    radial-gradient(circle at 80% 10%, rgb(255 242 231 / 0.72), transparent 32rem), var(--platform);
 }
 
 .nav-rail {
@@ -145,7 +150,6 @@ button {
   gap: 0;
   padding: var(--space-4) var(--space-4) var(--space-4) 0;
 }
-
 
 .workspace.chat-open {
   gap: var(--space-4);

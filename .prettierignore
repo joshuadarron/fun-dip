@@ -1,0 +1,11 @@
+node_modules
+dist
+build
+.rocketride
+pnpm-lock.yaml
+
+# PRD / spec docs are human-authored and must not be auto-formatted.
+.claude/docs/**
+.claude/rules/**
+AGENTS.md
+pipelines/**/AGENTS.md
