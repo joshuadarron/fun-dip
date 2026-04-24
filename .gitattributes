@@ -1,0 +1,7 @@
+# Canonical line endings. Prettier writes LF; this stops Windows autocrlf
+# from flipping files to CRLF on checkout and creating ghost diffs.
+* text=auto eol=lf
+
+# Binary / generated
+pnpm-lock.yaml text=lf
+*.pipe text=lf
