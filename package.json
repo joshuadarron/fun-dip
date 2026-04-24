@@ -9,12 +9,14 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev:web": "pnpm --filter @fundip/web dev",
-    "dev:api": "pnpm --filter @fundip/api dev",
+    "build:pkgs": "pnpm --filter @fundip/shared-types --filter @fundip/rocketride-client build",
+    "dev:web": "pnpm build:pkgs && pnpm --filter @fundip/web dev",
+    "dev:api": "pnpm build:pkgs && pnpm --filter @fundip/api dev",
+    "start:api": "pnpm build && pnpm --filter @fundip/api start",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
-    "test": "pnpm -r test",
+    "test": "pnpm build:pkgs && pnpm -r test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check": "pnpm lint && pnpm typecheck && pnpm test",
