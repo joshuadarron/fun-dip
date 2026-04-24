@@ -3,21 +3,46 @@
     {
       "id": "webhook_1",
       "provider": "webhook",
+      "name": "Web Hook",
       "config": {
         "hideForm": true,
         "mode": "Source",
         "parameters": {},
         "type": "webhook"
+      },
+      "ui": {
+        "position": {
+          "x": -100,
+          "y": 0
+        },
+        "nodeType": "default",
+        "formDataValid": true
       }
     },
     {
       "id": "agent_profile",
       "provider": "agent_deepagent",
+      "name": "Deep Agent",
       "config": {
+        "default": {
+          "advanced_mode": true,
+          "agent_description": "  Builds and edits a startup profile conversationally.    \n  Reads and writes the Ghost database via the attached MCP\n   client. Honors the create/update/read mode contract in \n  .claude/docs/PIPELINE_CONTRACTS.md. Only writes to\n  'profiles' and 'profile_narratives'. Never triggers     \n  scraping, matching, or submissions.   ",
+          "system_prompt": "  You are the Fundip profile agent. You receive a single\n  JSON document on the questions lane shaped like {       \n  profile_id, mode, facts?, context? }. mode is one of\n  'create', 'update', 'read'.                             \n                                                        \n  Rules:\n  1. Use the Ghost MCP tools to read or write 'profiles'\n  and 'profile_narratives' ONLY. Never touch programs,    \n  program_matches, submissions, conversations, or\n  messages.                                               \n  2. Never hallucinate fields. Leave unknown fields blank.\n  3. create: initialize the 'profiles' row if it does not \n  already exist. If context is supplied (onboarding       \n  transcript or import data), extract only fields the     \n  context explicitly states. Do not fabricate.            \n  4. update: apply each fact (field, value, source) to the\n  take precedence over inferred values. NEVER overwrite a \n  previously stated field with an inferred value; if in  \n  doubt, append a note to profile_narratives asking for   \n  clarification instead. Append a short narrative       \n  paragraph describing the change to 'profile_narratives'\n  (one row per conversational episode). If context is    \n  supplied in addition to facts, you may infer additional\n  fields but mark them source='inferred' and bias        \n  conservatively.                                \n  5. read: return the current profile_summary. Do not\n  write anything.                                    \n  6. Regenerate profile_summary on every update: a short  \n  natural-language description (one to two paragraphs) of\n  the current profile state. Factual, no marketing prose. \n  7. Output is a single JSON object matching             \n  ProfilePipelineOutput: { status: 'ok', profile_id,      \n  delta: { fields_updated: string[], fields_added:        \n  string[], narrative_appended: boolean },        \n  profile_summary: string }. Emit via the answers lane as \n  a JSON string.                                         \n  8. No em-dashes anywhere. Use commas, colons, periods,\n  or parentheses."
+        },
         "advanced_mode": true,
         "agent_description": "Builds and edits a startup profile conversationally. Reads and writes the Ghost database via the attached MCP client. Honors the create/update/read mode contract in .claude/docs/PIPELINE_CONTRACTS.md.",
         "system_prompt": "You are the Fundip profile agent. You receive a single JSON document on the questions lane with shape { profile_id, mode, facts?, context? }. The mode is one of create, update, read.\n\nRules:\n1. Use the Ghost MCP tools to read or write profiles and profile_narratives. Never hallucinate fields. Leave unknown fields blank.\n2. create: initialize the profile row if it does not already exist. If context is supplied, extract only fields the context explicitly states.\n3. update: apply each fact (field, value, source) to the profiles row. Stated facts (source chat or import) take precedence over inferred values. Never overwrite a previously stated field with an inferred value. Append a narrative paragraph describing the change to profile_narratives.\n4. read: return the current profile_summary. Do not write anything.\n5. Output is a single JSON object matching ProfilePipelineOutput: { status: 'ok', profile_id, delta: { fields_updated, fields_added, narrative_appended }, profile_summary }. Emit via the answers lane as a JSON string.\n6. No em-dashes in profile_summary or any narrative text. Use commas, colons, periods, or parentheses.",
-        "parameters": {}
+        "parameters": {
+          "google": {}
+        }
+      },
+      "ui": {
+        "position": {
+          "x": 180,
+          "y": 50
+        },
+        "nodeType": "default",
+        "formDataValid": true
       },
       "input": [
         {
@@ -29,6 +54,7 @@
     {
       "id": "llm_1",
       "provider": "llm_openai",
+      "name": "OpenAI",
       "config": {
         "profile": "openai-4o",
         "openai-4o": {
@@ -36,6 +62,14 @@
           "model": "gpt-4o-mini"
         },
         "parameters": {}
+      },
+      "ui": {
+        "position": {
+          "x": 60,
+          "y": 230
+        },
+        "nodeType": "default",
+        "formDataValid": true
       },
       "control": [
         {
@@ -47,15 +81,29 @@
     {
       "id": "mcp_ghost",
       "provider": "mcp_client",
+      "name": "MCP Client",
       "config": {
-        "type": "mcp_client",
         "serverName": "ghost",
-        "transport": "streamable-http",
+        "transport": "stdio",
+        "type": "mcp_client",
+        "stdio": {
+          "commandLine": "/Users/dylansavage/.local/bin/ghost mcp start"
+        },
         "http": {
-          "endpoint": "${ROCKETRIDE_GHOST_MCP_URL}",
           "bearer": "${ROCKETRIDE_GHOST_MCP_TOKEN}",
           "headers": {}
+        },
+        "parameters": {
+          "google": {}
         }
+      },
+      "ui": {
+        "position": {
+          "x": 380,
+          "y": 210
+        },
+        "nodeType": "default",
+        "formDataValid": true
       },
       "control": [
         {
@@ -67,8 +115,17 @@
     {
       "id": "response_1",
       "provider": "response_answers",
+      "name": "Return Answers",
       "config": {
         "laneName": "answers"
+      },
+      "ui": {
+        "position": {
+          "x": 590,
+          "y": 50
+        },
+        "nodeType": "default",
+        "formDataValid": true
       },
       "input": [
         {
@@ -79,6 +136,12 @@
     }
   ],
   "project_id": "b9e3c24d-4f7e-4d11-8b73-9f0a1c2d3e4f",
-  "viewport": { "x": 0, "y": 0, "zoom": 1 },
-  "version": 1
+  "version": 1,
+  "isLocked": false,
+  "snapToGrid": true,
+  "snapGridSize": [
+    10,
+    10
+  ],
+  "docRevision": 22
 }
