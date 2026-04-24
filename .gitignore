@@ -1,7 +1,23 @@
 .env
 .env.local
 .env.*.local
+
+# Dependencies & build artifacts
 node_modules
 dist
+build
+coverage
+.vite
+.turbo
+*.tsbuildinfo
+.husky/_
+
+# Editor / OS
 .DS_Store
 *.log
+
+# Claude Code: personal/local overrides (shared config lives in .claude/settings.json)
+.claude/settings.local.json
+
+# RocketRide local cache / generated artifacts
+.rocketride/

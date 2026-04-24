@@ -1,28 +1,40 @@
 {
-  "name": "fun-dip-ui",
+  "name": "fundip",
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview"
+  "description": "Agent-driven funding program discovery and submission tool",
+  "packageManager": "pnpm@10.33.1",
+  "engines": {
+    "node": ">=20"
   },
-  "dependencies": {
-    "@radix-ui/react-switch": "latest",
-    "@radix-ui/react-tooltip": "latest",
-    "@vitejs/plugin-react": "latest",
-    "boxicons": "latest",
-    "class-variance-authority": "latest",
-    "clsx": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "tailwind-merge": "latest"
+  "scripts": {
+    "dev:web": "pnpm --filter @fundip/web dev",
+    "dev:api": "pnpm --filter @fundip/api dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "pnpm lint && pnpm typecheck && pnpm test",
+    "prepare": "husky"
   },
   "devDependencies": {
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "typescript": "latest",
-    "vite": "latest"
+    "@eslint/js": "^9.15.0",
+    "@types/node": "^22.7.0",
+    "eslint": "^9.15.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.14",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.2.10",
+    "prettier": "^3.3.3",
+    "typescript": "^5.6.3",
+    "typescript-eslint": "^8.14.0"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx,json,md,css,yml,yaml}": [
+      "prettier --write"
+    ]
   }
 }

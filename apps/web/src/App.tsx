@@ -1,13 +1,7 @@
 import { useMemo, useState } from "react";
 import { Badge } from "./components/ui/badge";
 import { Button } from "./components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "./components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./components/ui/card";
 import { Input } from "./components/ui/input";
 import { Switch } from "./components/ui/switch";
 import {
@@ -18,12 +12,7 @@ import {
   TableHeader,
   TableRow,
 } from "./components/ui/table";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "./components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
 
 type PageId = "dashboard" | "database" | "design-system" | "settings";
 
@@ -226,8 +215,8 @@ function DashboardPage() {
           <Badge>Overview</Badge>
           <CardTitle>Program operations, simplified.</CardTitle>
           <CardDescription>
-            Track profile readiness, program discovery, and application progress
-            from one calm workspace.
+            Track profile readiness, program discovery, and application progress from one calm
+            workspace.
           </CardDescription>
         </CardHeader>
       </Card>
@@ -257,9 +246,8 @@ function DatabasePage() {
           <Badge>Onboarding first</Badge>
           <CardTitle>Your database starts with a profile.</CardTitle>
           <CardDescription>
-            The database is intentionally quiet right now. The chat assistant
-            will collect company details first, then use them to structure
-            startup program matches.
+            The database is intentionally quiet right now. The chat assistant will collect company
+            details first, then use them to structure startup program matches.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -299,10 +287,7 @@ function DesignSystemPage() {
               <CardContent className="token-list">
                 {group.tokens.map(([name, value]) => (
                   <div className="token-row" key={name}>
-                    <span
-                      className="token-swatch"
-                      style={{ backgroundColor: value }}
-                    />
+                    <span className="token-swatch" style={{ backgroundColor: value }} />
                     <div>
                       <strong>{name}</strong>
                       <code>{value}</code>
@@ -324,9 +309,7 @@ function DesignSystemPage() {
           <Card>
             <CardHeader>
               <CardTitle>Buttons and inputs</CardTitle>
-              <CardDescription>
-                Rounded-square controls with restrained contrast.
-              </CardDescription>
+              <CardDescription>Rounded-square controls with restrained contrast.</CardDescription>
             </CardHeader>
             <CardContent className="component-stack">
               <div className="button-row">
@@ -342,9 +325,7 @@ function DesignSystemPage() {
           <Card>
             <CardHeader>
               <CardTitle>Switches and badges</CardTitle>
-              <CardDescription>
-                Radix-backed controls styled through app tokens.
-              </CardDescription>
+              <CardDescription>Radix-backed controls styled through app tokens.</CardDescription>
             </CardHeader>
             <CardContent className="component-stack">
               <div className="setting-row">
@@ -402,9 +383,7 @@ function SettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Workspace settings</CardTitle>
-          <CardDescription>
-            Static placeholders for the first frontend pass.
-          </CardDescription>
+          <CardDescription>Static placeholders for the first frontend pass.</CardDescription>
         </CardHeader>
         <CardContent className="component-stack">
           <div className="setting-row">
@@ -417,9 +396,7 @@ function SettingsPage() {
           <div className="setting-row">
             <div>
               <strong>Mock chat responses</strong>
-              <p className="muted">
-                API wiring should happen through a server-side proxy later.
-              </p>
+              <p className="muted">API wiring should happen through a server-side proxy later.</p>
             </div>
             <Switch defaultChecked />
           </div>
