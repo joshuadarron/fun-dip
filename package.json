@@ -1,0 +1,28 @@
+{
+  "name": "fun-dip-ui",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@radix-ui/react-switch": "latest",
+    "@radix-ui/react-tooltip": "latest",
+    "@vitejs/plugin-react": "latest",
+    "boxicons": "latest",
+    "class-variance-authority": "latest",
+    "clsx": "latest",
+    "react": "latest",
+    "react-dom": "latest",
+    "tailwind-merge": "latest"
+  },
+  "devDependencies": {
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "typescript": "latest",
+    "vite": "latest"
+  }
+}
