@@ -161,6 +161,22 @@ importers:
 
   packages/shared-types: {}
 
+  pipelines/chat:
+    dependencies:
+      '@fundip/shared-types':
+        specifier: workspace:*
+        version: link:../../packages/shared-types
+    devDependencies:
+      '@types/node':
+        specifier: ^22.7.0
+        version: 22.19.17
+      tsx:
+        specifier: ^4.19.2
+        version: 4.21.0
+      vitest:
+        specifier: ^2.1.6
+        version: 2.1.9(@types/node@22.19.17)(jsdom@25.0.1)
+
   pipelines/profile:
     dependencies:
       '@fundip/shared-types':

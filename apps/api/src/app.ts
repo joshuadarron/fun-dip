@@ -7,6 +7,7 @@ import type { GhostClient } from "./ghost/client.js";
 import { createFakeGhostClient } from "./ghost/fake.js";
 import { createRepositories } from "./ghost/repos.js";
 import { createGraphQLRouter } from "./graphql/server.js";
+import { createChatRouter } from "./routes/chat.js";
 import { createProfileRouter } from "./routes/profile.js";
 import { createScrapingRouter } from "./routes/scraping.js";
 import { createSubmissionsRouter } from "./routes/submissions.js";
@@ -86,6 +87,14 @@ export function createApp(deps: AppDependencies): Express {
     // --- submissions ---
     app.use(createSubmissionsRouter({ invoker: deps.invoker }));
     // --- /submissions ---
+
+    // --- chat ---
+    // Phase 7. Single user-facing chat endpoint (POST /api/chat). The
+    // chat pipeline owns the chat-side safety rails (match-only scraping,
+    // no silent submit) inside its `pipeline.pipe`, so this route stays a
+    // thin invoker wrapper, identical in shape to the others.
+    app.use(createChatRouter({ invoker: deps.invoker }));
+    // --- /chat ---
   }
 
   return app;

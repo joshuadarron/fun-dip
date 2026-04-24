@@ -1,0 +1,242 @@
+{
+  "components": [
+    {
+      "id": "webhook_1",
+      "provider": "webhook",
+      "config": {
+        "hideForm": true,
+        "mode": "Source",
+        "parameters": {},
+        "type": "webhook"
+      }
+    },
+    {
+      "id": "agent_chat",
+      "provider": "agent_deepagent",
+      "config": {
+        "advanced_mode": true,
+        "agent_description": "Fundip user-facing copilot. Reads chat memory and the surfaced submissions list from Ghost, delegates persistable facts to the profile pipeline tool, and routes program/submission actions through the scraping (match-only) and submissions (prefill-by-default) pipeline tools. Honors the chat contract in .claude/docs/PIPELINE_CONTRACTS.md and pipelines/chat/AGENTS.md.",
+        "system_prompt": "You are the Fundip chat agent. You receive a single JSON document on the questions lane shaped like { user_id, profile_id, conversation_id, current_page, current_selection, message }.\n\nMemory protocol (hard requirement, do every turn in this order):\n1. Read the conversations row for user_id via Ghost MCP. If missing, insert one with empty summary. Capture conversation_id.\n2. Read the last 20 messages for this conversation_id, ordered ascending by created_at.\n3. Assemble LLM context: conversations.summary as system-level header (older context), then the 20 messages, then the new user message.\n4. After composing the reply, append the user message and the assistant message to the messages collection. Each row carries page_context, selection_context, and tool_calls (null when no tool was invoked this turn).\n5. If the count of messages newer than the last summary update reaches 20, regenerate conversations.summary with a cheap model and write it back. Never recompute on every turn.\n\nTools available (via pipeline_as_tool wrappers):\n- profile_pipeline: invoke with mode='update' and facts: [{ field, value, source: 'chat' }] to commit user-stated facts. Use this whenever the current user message contains a persistable fact about the startup (stage, location, market, goals, looking_for, narrative).\n- scraping_pipeline_match: match-only wrapper. The tool schema fixes mode='match' and emit_callback=false. You CANNOT and MUST NOT request mode='full_scrape' through this tool: the wrapper will reject any attempt. full_scrape is cron-only.\n- submissions_pipeline_prefill: prefill-by-default wrapper. The tool schema fixes action='prefill_only'. Use this on the Programs page when the user says 'apply' against a selected program, and on the Submissions page when the user supplies values for an awaiting_user_input submission (pass them in provided_data via submission_id).\n- submissions_pipeline_submit: submit wrapper. ONLY use this when the current user message contains explicit confirmation language ('yes submit', 'go ahead and submit', 'submit it', 'confirm submit'). Inferred consent is not enough. If the wrapper detects no in-turn confirmation, it will reject the call.\n\nSafety rails (do not violate):\n- Never call scraping_pipeline_match with mode='full_scrape'. The schema does not permit it; do not try to bypass.\n- Never call submissions_pipeline_submit unless the current user message contains explicit confirmation. Without confirmation, use submissions_pipeline_prefill.\n- Never silently mutate the profile. If the user states a persistable fact, you MUST call profile_pipeline within this same turn; record the call in tool_calls.\n\nPage-context bias:\n- dashboard: orientation. No mutations unless asked.\n- profile: drive profile construction. Ask for biggest gaps (stage, market, looking_for) when sparse. Extract any stated facts and call profile_pipeline.\n- programs: explain matches and initiate submissions. With a selected program, 'apply' means submissions_pipeline_prefill against that program_id.\n- submissions: resolve missing fields. With a selected submission in awaiting_user_input, parse the user message for the missing field values and call submissions_pipeline_prefill with submission_id and provided_data merged.\n\nSurfacing pending submissions:\n- At the start of every turn, after reading memory, list submissions with status='awaiting_user_input' filtered by profile_id. Cross-reference the last 3 message rows: a pending submission is 'recently surfaced' if its id appears in any of those rows' tool_calls or in the surfaced.pending_submissions hint persisted on the assistant turns. Only surface submissions that have NOT been mentioned in the last 3 turns. Include them in the reply text AND in the structured surfaced.pending_submissions list of the output.\n\nOutput contract:\nEmit a single JSON object on the answers lane that matches ChatPipelineOutput: { status: 'ok', reply, conversation_id, tool_calls: [{ tool, input, output }, ...], surfaced: { pending_submissions?: [submission_id], new_matches?: [program_match_id] } }. Emit it as a JSON string. tool_calls must reflect every pipeline_as_tool invocation made this turn, in order. surfaced is always present (use empty arrays when nothing surfaced).\n\nNo em-dashes anywhere. Use commas, periods, colons, or parentheses. Do not output internal scratch reasoning.",
+        "parameters": {}
+      },
+      "input": [
+        {
+          "lane": "questions",
+          "from": "webhook_1"
+        }
+      ]
+    },
+    {
+      "id": "llm_1",
+      "provider": "llm_openai",
+      "config": {
+        "profile": "openai-4o",
+        "openai-4o": {
+          "apikey": "${ROCKETRIDE_OPENAI_KEY}",
+          "model": "gpt-4o-mini"
+        },
+        "parameters": {}
+      },
+      "control": [
+        {
+          "classType": "llm",
+          "from": "agent_chat"
+        }
+      ]
+    },
+    {
+      "id": "mcp_ghost",
+      "provider": "mcp_client",
+      "config": {
+        "type": "mcp_client",
+        "serverName": "ghost",
+        "transport": "streamable-http",
+        "http": {
+          "endpoint": "${ROCKETRIDE_GHOST_MCP_URL}",
+          "bearer": "${ROCKETRIDE_GHOST_MCP_TOKEN}",
+          "headers": {}
+        },
+        "tools": {
+          "allowed_collections": [
+            "conversations",
+            "messages",
+            "submissions",
+            "profiles",
+            "programs",
+            "program_matches"
+          ],
+          "notes": "Read last 20 messages, append user/assistant messages, read/update conversations.summary. List submissions with status=awaiting_user_input by profile_id. Read profiles for context. Reads on programs/program_matches are allowed for surfacing context only; writes to those collections happen through pipeline_as_tool wrappers, not directly."
+        }
+      },
+      "control": [
+        {
+          "classType": "tool",
+          "from": "agent_chat"
+        }
+      ]
+    },
+    {
+      "id": "tool_profile_pipeline",
+      "provider": "pipeline_as_tool",
+      "config": {
+        "type": "pipeline_as_tool",
+        "tool_name": "profile_pipeline",
+        "tool_description": "Commit conversational profile facts. Call with { profile_id, mode: 'update', facts: [{ field, value, source: 'chat' }, ...] } when the user states a persistable fact (stage, location, market, goals, looking_for, narrative). Returns { status, profile_id, delta, profile_summary }. Never used to read; always represents an explicit, observable mutation.",
+        "pipeline_ref": "profile",
+        "input_schema": {
+          "type": "object",
+          "required": ["profile_id", "mode"],
+          "properties": {
+            "profile_id": { "type": "string" },
+            "mode": { "enum": ["create", "update", "read"] },
+            "facts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["field", "value", "source"],
+                "properties": {
+                  "field": { "type": "string" },
+                  "value": {},
+                  "source": { "enum": ["chat", "import", "inferred"] }
+                }
+              }
+            },
+            "context": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "control": [
+        {
+          "classType": "tool",
+          "from": "agent_chat"
+        }
+      ]
+    },
+    {
+      "id": "tool_scraping_pipeline_match",
+      "provider": "pipeline_as_tool",
+      "config": {
+        "type": "pipeline_as_tool",
+        "tool_name": "scraping_pipeline_match",
+        "tool_description": "Run a match pass for the current profile against the global programs collection. The schema FIXES mode='match' and emit_callback=false. Calls with mode='full_scrape' are not representable in this schema and will be rejected. full_scrape is cron-only and is NEVER reachable from chat.",
+        "pipeline_ref": "scraping",
+        "input_schema": {
+          "type": "object",
+          "required": ["mode", "profile_id"],
+          "properties": {
+            "mode": { "const": "match" },
+            "profile_id": { "type": "string" },
+            "emit_callback": { "const": false }
+          },
+          "additionalProperties": false
+        },
+        "input_defaults": {
+          "mode": "match",
+          "emit_callback": false
+        },
+        "input_overrides": {
+          "mode": "match",
+          "emit_callback": false
+        }
+      },
+      "control": [
+        {
+          "classType": "tool",
+          "from": "agent_chat"
+        }
+      ]
+    },
+    {
+      "id": "tool_submissions_pipeline_prefill",
+      "provider": "pipeline_as_tool",
+      "config": {
+        "type": "pipeline_as_tool",
+        "tool_name": "submissions_pipeline_prefill",
+        "tool_description": "Prefill (or refresh prefill of) a submission. The schema FIXES action='prefill_only'. Use on the Programs page when the user says 'apply' on a selected program, and on the Submissions page when the user supplies values for missing fields on an awaiting_user_input submission (pass submission_id and provided_data). Never use this tool to actually submit; that is submissions_pipeline_submit.",
+        "pipeline_ref": "submissions",
+        "input_schema": {
+          "type": "object",
+          "required": ["profile_id", "program_id", "action"],
+          "properties": {
+            "profile_id": { "type": "string" },
+            "program_id": { "type": "string" },
+            "submission_id": { "type": "string" },
+            "action": { "const": "prefill_only" },
+            "provided_data": { "type": "object" }
+          },
+          "additionalProperties": false
+        },
+        "input_defaults": {
+          "action": "prefill_only"
+        },
+        "input_overrides": {
+          "action": "prefill_only"
+        }
+      },
+      "control": [
+        {
+          "classType": "tool",
+          "from": "agent_chat"
+        }
+      ]
+    },
+    {
+      "id": "tool_submissions_pipeline_submit",
+      "provider": "pipeline_as_tool",
+      "config": {
+        "type": "pipeline_as_tool",
+        "tool_name": "submissions_pipeline_submit",
+        "tool_description": "Submit a previously prefilled submission. The schema fixes action='submit'. The wrapper additionally requires require_user_confirmation=true: the chat agent must include the verbatim user_confirmation_phrase from the current-turn user message ('yes submit', 'go ahead and submit', 'submit it', 'confirm submit'). If user_confirmation_phrase is absent or does not appear in the current user message, the wrapper rejects the invocation with a needs_confirmation error. Never inferred; never deferred across turns.",
+        "pipeline_ref": "submissions",
+        "input_schema": {
+          "type": "object",
+          "required": ["profile_id", "program_id", "submission_id", "action", "user_confirmation_phrase"],
+          "properties": {
+            "profile_id": { "type": "string" },
+            "program_id": { "type": "string" },
+            "submission_id": { "type": "string" },
+            "action": { "const": "submit" },
+            "provided_data": { "type": "object" },
+            "user_confirmation_phrase": { "type": "string", "minLength": 3 }
+          },
+          "additionalProperties": false
+        },
+        "input_defaults": {
+          "action": "submit"
+        },
+        "input_overrides": {
+          "action": "submit"
+        },
+        "preflight": {
+          "rule": "require_in_turn_phrase",
+          "field": "user_confirmation_phrase",
+          "haystack": "$turn.user_message",
+          "match": "case_insensitive_substring"
+        }
+      },
+      "control": [
+        {
+          "classType": "tool",
+          "from": "agent_chat"
+        }
+      ]
+    },
+    {
+      "id": "response_1",
+      "provider": "response_answers",
+      "config": {
+        "laneName": "answers"
+      },
+      "input": [
+        {
+          "lane": "answers",
+          "from": "agent_chat"
+        }
+      ]
+    }
+  ],
+  "project_id": "d4a8c1f2-9b6e-4f30-a5c1-7d2e8b9f0a3c",
+  "viewport": { "x": 0, "y": 0, "zoom": 1 },
+  "version": 1
+}

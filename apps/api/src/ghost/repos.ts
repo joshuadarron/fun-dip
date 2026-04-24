@@ -78,6 +78,14 @@ export interface SubmissionsRepo {
 export interface ConversationsRepo {
   getByUserId(userId: UUID): Promise<Conversation | null>;
   updateSummary(id: UUID, summary: string): Promise<Conversation>;
+  /**
+   * Single-threaded-per-user upsert. Returns the existing conversations
+   * row for `userId` if one exists; otherwise inserts a fresh row with an
+   * empty summary (or the supplied initial summary). The PRD's chat
+   * memory rule is one conversation per user, so the chat pipeline calls
+   * this at the start of every turn.
+   */
+  upsertByUserId(userId: UUID, init?: { summary?: string }): Promise<Conversation>;
 }
 
 export interface MessagesRepo {
@@ -90,6 +98,15 @@ export interface MessagesRepo {
     selection_context: Selection | null;
     tool_calls: ToolCallRecord[] | null;
   }): Promise<Message>;
+  /**
+   * Count messages newer than the conversation's last `summary` update.
+   * The chat pipeline regenerates the rolling summary every 20 new
+   * messages, so this method gives the pipeline a cheap "are we due?"
+   * signal without scanning the entire conversation history. The
+   * comparison key is `conversations.updated_at`, which the
+   * `updateSummary` mutation bumps.
+   */
+  countSinceSummaryUpdate(conversationId: UUID): Promise<number>;
 }
 
 export interface Repositories {
@@ -250,6 +267,19 @@ export function createRepositories(client: GhostClient): Repositories {
         return rows[0] ?? null;
       },
       updateSummary: (id, summary) => client.update("conversations", id, { summary }),
+      async upsertByUserId(userId, init) {
+        const rows = await client.list("conversations", {
+          filter: { user_id: userId },
+          limit: 1,
+        });
+        const existing = rows[0];
+        if (existing) return existing;
+        const row: Omit<Conversation, "id" | "created_at" | "updated_at"> = {
+          user_id: userId,
+          summary: init?.summary ?? "",
+        };
+        return client.insert("conversations", row);
+      },
     },
 
     messages: {
@@ -260,6 +290,26 @@ export function createRepositories(client: GhostClient): Repositories {
           limit: n,
         }),
       append: async (input) => client.insert("messages", input),
+      async countSinceSummaryUpdate(conversationId) {
+        const conversation = await client.get("conversations", conversationId);
+        // No conversation row, no summary baseline: every message counts.
+        // Rather than load and discard the full message list, fall back to
+        // the cheap unfiltered count which the caller can interpret as
+        // "regenerate now if past the threshold".
+        if (!conversation) {
+          const all = await client.list("messages", {
+            filter: { conversation_id: conversationId },
+          });
+          return all.length;
+        }
+        const since = conversation.updated_at;
+        const all = await client.list("messages", {
+          filter: { conversation_id: conversationId },
+        });
+        // Strict greater-than: messages created at exactly `since` were
+        // already accounted for at the last summary update.
+        return all.filter((m) => m.created_at > since).length;
+      },
     },
   };
 }
