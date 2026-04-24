@@ -18,7 +18,8 @@
     "build": "echo \"source-only package, no build\" && exit 0"
   },
   "dependencies": {
-    "@fundip/shared-types": "workspace:*"
+    "@fundip/shared-types": "workspace:*",
+    "rocketride": "^1.0.6"
   },
   "devDependencies": {
     "@types/node": "^22.7.0",
