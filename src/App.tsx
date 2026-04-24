@@ -188,26 +188,31 @@ function NavRail({
   activePage: PageId;
   onNavigate: (page: PageId) => void;
 }) {
+  const renderNavItem = (item: NavItem) => (
+    <Tooltip key={item.id}>
+      <TooltipTrigger asChild>
+        <button
+          className={`nav-button ${activePage === item.id ? "active" : ""}`}
+          onClick={() => onNavigate(item.id)}
+          aria-label={item.label}
+        >
+          <i className={`bx ${item.icon}`} />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{item.label}</TooltipContent>
+    </Tooltip>
+  );
+
   return (
     <aside className="nav-rail" aria-label="Primary navigation">
       <div className="brand-mark">
-        <span>F</span>
+        <img src="/images/fundip-icon.svg" alt="Fun Dip" />
       </div>
       <nav className="nav-list">
-        {navItems.map((item) => (
-          <Tooltip key={item.id}>
-            <TooltipTrigger asChild>
-              <button
-                className={`nav-button ${activePage === item.id ? "active" : ""}`}
-                onClick={() => onNavigate(item.id)}
-                aria-label={item.label}
-              >
-                <i className={`bx ${item.icon}`} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">{item.label}</TooltipContent>
-          </Tooltip>
-        ))}
+        {navItems.filter((item) => item.id !== "settings").map(renderNavItem)}
+      </nav>
+      <nav className="nav-list nav-list-bottom" aria-label="Workspace settings">
+        {navItems.filter((item) => item.id === "settings").map(renderNavItem)}
       </nav>
     </aside>
   );
