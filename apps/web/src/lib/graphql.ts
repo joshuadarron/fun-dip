@@ -3,14 +3,22 @@ import type { Profile, ProgramMatch, Submission, UUID } from "@fundip/shared-typ
 
 /**
  * Wondergraph endpoint. App layer exposes `/graphql` per ARCHITECTURE.md.
+ * `graphql-request` v7 requires an absolute URL, so we resolve against
+ * `window.location.origin` at call time. Vite dev proxies `/graphql`
+ * to the api; in prod the web host proxies the same path.
  */
-const DEFAULT_GRAPHQL_URL = "/graphql";
+function resolveGraphQLUrl(): string {
+  if (typeof window !== "undefined") {
+    return `${window.location.origin}/graphql`;
+  }
+  return "http://localhost:4000/graphql";
+}
 
 let clientInstance: GraphQLClient | null = null;
 
 export function getGraphQLClient(): GraphQLClient {
   if (!clientInstance) {
-    clientInstance = new GraphQLClient(DEFAULT_GRAPHQL_URL);
+    clientInstance = new GraphQLClient(resolveGraphQLUrl());
   }
   return clientInstance;
 }

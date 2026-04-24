@@ -41,8 +41,8 @@ export function createGraphQLRouter(opts: { repos: Repositories }): Router {
   return router;
 }
 
-const queryOp = z.enum(["profile", "profileByUser"]);
-const mutationOp = z.enum(["updateProfile"]);
+const queryOp = z.enum(["profile", "profileByUser", "Profile", "ProgramMatches", "Submissions"]);
+const mutationOp = z.enum(["updateProfile", "UpdateProfile"]);
 const operation = z.union([queryOp, mutationOp]);
 
 const bodySchema = z.union([
@@ -50,10 +50,45 @@ const bodySchema = z.union([
     operationName: operation,
     variables: z.record(z.string(), z.unknown()).optional(),
   }),
-  z.object({ query: z.string() }),
+  z.object({
+    query: z.string(),
+    variables: z.record(z.string(), z.unknown()).optional(),
+    operationName: z.string().nullable().optional(),
+  }),
 ]);
 
-type StructuredBody = Extract<z.infer<typeof bodySchema>, { operationName: unknown }>;
+type StructuredBody = Extract<
+  z.infer<typeof bodySchema>,
+  { operationName: unknown; query?: never }
+>;
+
+/**
+ * Best-effort parse of the operation name out of a raw GraphQL document.
+ * Used when the client did not send `operationName` as a sibling field.
+ */
+function extractOperationName(query: string): string | null {
+  const match = /\b(?:query|mutation)\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(query);
+  return match?.[1] ?? null;
+}
+
+/**
+ * Map the conventions we use in the frontend (PascalCase named operations)
+ * onto the canonical backend names (camelCase).
+ */
+function normalizeOperationName(name: string): string {
+  switch (name) {
+    case "Profile":
+      return "profile";
+    case "UpdateProfile":
+      return "updateProfile";
+    case "ProgramMatches":
+      return "programMatches";
+    case "Submissions":
+      return "submissions";
+    default:
+      return name;
+  }
+}
 
 async function dispatch(
   body: unknown,
@@ -64,33 +99,54 @@ async function dispatch(
     return { data: null, errors: [{ message: "invalid GraphQL request body" }] };
   }
   const payload = parsed.data;
-  if ("query" in payload) {
-    return {
-      data: null,
-      errors: [
-        {
-          message:
-            "Raw GraphQL query strings are not parsed by this endpoint yet. " +
-            "Send { operationName, variables } instead. See apps/api/src/graphql/server.ts.",
-        },
-      ],
-    };
+
+  // Resolve operation name from whichever body shape the caller sent.
+  let rawName: string | null = null;
+  if ("operationName" in payload && typeof payload.operationName === "string") {
+    rawName = payload.operationName;
+  } else if ("query" in payload && typeof payload.query === "string") {
+    rawName = extractOperationName(payload.query);
   }
+  if (!rawName) {
+    return { data: null, errors: [{ message: "missing operationName" }] };
+  }
+  const name = normalizeOperationName(rawName);
+  const vars = (payload as StructuredBody).variables ?? {};
 
-  const call = payload as StructuredBody;
-  const vars = call.variables ?? {};
-
-  if (call.operationName === "profile") {
+  if (name === "profile") {
     const args = z.object({ id: z.string() }).parse(vars);
     const data = await profileResolvers.Query.profile(null, args, ctx);
-    return { data: { profile: data } };
+    return { data: { profile: data, profileSummary: null } };
   }
-  if (call.operationName === "profileByUser") {
+  if (name === "profileByUser") {
     const args = z.object({ user_id: z.string() }).parse(vars);
     const data = await profileResolvers.Query.profileByUser(null, args, ctx);
     return { data: { profileByUser: data } };
   }
-  if (call.operationName === "updateProfile") {
+  if (name === "programMatches") {
+    const args = z.object({ profileId: z.string() }).parse(vars);
+    const rows = await ctx.repos.matches.listForProfile(args.profileId);
+    const hydrated = await Promise.all(
+      rows.map(async (m) => ({
+        ...m,
+        program: await ctx.repos.programs
+          .list()
+          .then((all) => all.find((p) => p.id === m.program_id) ?? null),
+      })),
+    );
+    return { data: { programMatches: hydrated } };
+  }
+  if (name === "submissions") {
+    const args = z.object({ profileId: z.string() }).parse(vars);
+    const rows = await ctx.repos.submissions.listForProfile(args.profileId);
+    const programs = await ctx.repos.programs.list();
+    const hydrated = rows.map((s) => ({
+      ...s,
+      program: programs.find((p) => p.id === s.program_id) ?? null,
+    }));
+    return { data: { submissions: hydrated } };
+  }
+  if (name === "updateProfile") {
     const patchSchema = z
       .object({
         startup_name: z.string().optional(),
@@ -112,5 +168,5 @@ async function dispatch(
     return { data: { updateProfile: data } };
   }
 
-  return { data: null, errors: [{ message: `unknown operationName` }] };
+  return { data: null, errors: [{ message: `unknown operationName: ${name}` }] };
 }

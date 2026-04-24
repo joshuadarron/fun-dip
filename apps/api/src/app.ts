@@ -16,6 +16,7 @@ import { createGraphQLRouter } from "./graphql/server.js";
 import { requireAuth } from "./routes/auth.js";
 import { createChatRouter } from "./routes/chat.js";
 import { createConfirmRouter } from "./routes/confirm.js";
+import { createDevSeedRouter } from "./routes/dev-seed.js";
 import { createOAuthRouter, type GoogleTokenVerifier } from "./routes/oauth.js";
 import { createProfileRouter } from "./routes/profile.js";
 import { createScrapingRouter } from "./routes/scraping.js";
@@ -114,6 +115,15 @@ export function createApp(deps: AppDependencies): Express {
   app.use(express.urlencoded({ extended: true }));
 
   app.use(createGraphQLRouter({ repos }));
+
+  // --- dev seed ---
+  // Only available in development. Writes sample programs + a profile
+  // + matches directly to Ghost so the UI has data without needing a
+  // live RocketRide + Tinyfish stack. Idempotent. GET /dev/seed.
+  if (config.NODE_ENV === "development") {
+    app.use(createDevSeedRouter({ ghost }));
+  }
+  // --- /dev seed ---
 
   // --- oauth ---
   // OAuth routes are mounted whenever a verifier is available: tests
