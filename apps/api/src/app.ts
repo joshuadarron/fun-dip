@@ -1,12 +1,21 @@
 import express, { type Express } from "express";
 import type { PipelineInvoker } from "@fundip/rocketride-client";
 import type { Config } from "./config/index.js";
+import {
+  buildDeepLinkSigner,
+  createCallbackHandlers,
+  type UserEmailResolver,
+} from "./callbacks/handlers.js";
 import { createCallbackRouter, type CallbackHandlers } from "./callbacks/routes.js";
 import { createNoopEmailClient, type EmailClient } from "./email/client.js";
+import { createResendEmailClient } from "./email/resend.js";
 import type { GhostClient } from "./ghost/client.js";
 import { createFakeGhostClient } from "./ghost/fake.js";
 import { createRepositories } from "./ghost/repos.js";
 import { createGraphQLRouter } from "./graphql/server.js";
+import { requireAuth } from "./routes/auth.js";
+import { createConfirmRouter } from "./routes/confirm.js";
+import { createOAuthRouter, type GoogleTokenVerifier } from "./routes/oauth.js";
 import { createProfileRouter } from "./routes/profile.js";
 import { createScrapingRouter } from "./routes/scraping.js";
 import { createSubmissionsRouter } from "./routes/submissions.js";
@@ -27,28 +36,61 @@ export interface AppDependencies {
    * invocation do not have to stub one out.
    */
   invoker?: PipelineInvoker;
+  /**
+   * Resolver for `user_id -> email`. The shared types do not put email
+   * on the Profile, and Phase 8 does not yet ship a real user store;
+   * the OAuth flow will be the source of truth in production. Tests
+   * inject a stub.
+   */
+  userEmail?: UserEmailResolver;
+  /**
+   * Stub Google ID-token verifier for tests. Production wiring builds
+   * the real one in `index.ts` from `google-auth-library`.
+   */
+  googleVerifier?: GoogleTokenVerifier;
 }
+
+/**
+ * Default user-email resolver: returns `null`, which causes the
+ * callback handlers to skip sending. Production wiring overrides this
+ * with a resolver backed by the OAuth-issued user store.
+ */
+const noopUserEmail: UserEmailResolver = {
+  async resolveUserEmail() {
+    return null;
+  },
+};
 
 export function createApp(deps: AppDependencies): Express {
   const { config } = deps;
-  const email = deps.email ?? createNoopEmailClient();
+  const isTest = config.NODE_ENV === "test";
+
+  // Pick email client: real Resend in non-test environments, no-op in
+  // tests (or when explicitly injected by tests). Tests can also pass
+  // a stub `EmailClient` directly via `deps.email`.
+  const email =
+    deps.email ??
+    (isTest
+      ? createNoopEmailClient()
+      : createResendEmailClient({
+          apiKey: config.RESEND_API_KEY,
+          from: "Fundip <noreply@fundip.app>",
+        }));
+
   const ghost = deps.ghost ?? createFakeGhostClient();
   const repos = createRepositories(ghost);
+  const userEmail = deps.userEmail ?? noopUserEmail;
+
+  const baseHandlers = createCallbackHandlers({
+    repos,
+    email,
+    signer: buildDeepLinkSigner(config.DEEP_LINK_SIGNING_KEY),
+    appBaseUrl: config.APP_BASE_URL,
+    userEmail,
+  });
 
   const handlers: CallbackHandlers = {
-    async onMatchesReady(payload) {
-      console.log("matches_ready", payload);
-      // Phase 8: compose digest email per profile, send via email client.
-      void email;
-    },
-    async onSubmissionNeedsInput(payload) {
-      console.log("submission_needs_input", payload);
-      // Phase 8: compose missing-info email with signed deep link.
-    },
-    async onSubmissionSubmitted(payload) {
-      console.log("submission_submitted", payload);
-      // Phase 8: send confirmation email.
-    },
+    ...baseHandlers,
     ...deps.handlers,
   };
 
@@ -65,11 +107,45 @@ export function createApp(deps: AppDependencies): Express {
     }),
   );
 
-  // JSON body parser for any non-callback routes. Must come AFTER the
-  // callback router so the raw-body parser there is not superseded.
+  // JSON + url-encoded body parsers for non-callback routes. Must come
+  // AFTER the callback router so its raw-body parser is not superseded.
   app.use(express.json({ limit: "1mb" }));
+  app.use(express.urlencoded({ extended: true }));
 
   app.use(createGraphQLRouter({ repos }));
+
+  // --- oauth ---
+  // OAuth routes are mounted whenever a verifier is available: tests
+  // inject a stub, production wires the real google-auth-library
+  // verifier in `index.ts`. When no verifier is provided (e.g. the
+  // bare `createApp({ config })` call used by some unit tests),
+  // OAuth routes are simply absent.
+  if (deps.googleVerifier) {
+    app.use(
+      createOAuthRouter({
+        clientId: config.GOOGLE_OAUTH_CLIENT_ID,
+        redirectUri: `${config.APP_BASE_URL.replace(/\/+$/, "")}/auth/google/callback`,
+        appBaseUrl: config.APP_BASE_URL,
+        sessionSigningKey: config.DEEP_LINK_SIGNING_KEY,
+        verifier: deps.googleVerifier,
+        secureCookies: !isTest,
+      }),
+    );
+  }
+  // --- /oauth ---
+
+  // --- confirm ---
+  // Email deep-link confirmation page. Both the GET (token-only) and
+  // POST (token + session) paths are mounted here. The POST handler
+  // uses `requireAuth` internally; see `confirm.ts`.
+  app.use(
+    createConfirmRouter({
+      signingKey: config.DEEP_LINK_SIGNING_KEY,
+      sessionSigningKey: config.DEEP_LINK_SIGNING_KEY,
+      ...(deps.invoker ? { invoker: deps.invoker } : {}),
+    }),
+  );
+  // --- /confirm ---
 
   if (deps.invoker) {
     app.use(createProfileRouter({ invoker: deps.invoker }));
@@ -84,9 +160,27 @@ export function createApp(deps: AppDependencies): Express {
     // --- /scraping ---
 
     // --- submissions ---
+    // `POST /api/submissions/:id/submit` requires both a signed deep
+    // link AND an authenticated session per ARCHITECTURE rule 13. The
+    // deep-link check happens at `/confirm` (the email button); the
+    // session check is enforced here as a route-scoped middleware so
+    // the route shape stays unchanged. Other submissions routes
+    // (prefill, resume) are open in Phase 8 because they are called
+    // from already-authenticated UI surfaces.
+    app.use(
+      "/api/submissions/:id/submit",
+      requireAuth({ signingKey: config.DEEP_LINK_SIGNING_KEY }),
+    );
     app.use(createSubmissionsRouter({ invoker: deps.invoker }));
     // --- /submissions ---
   }
+
+  // --- cron wiring ---
+  // Cron does NOT start in createApp. The process entrypoint
+  // (`src/index.ts`) imports `startCron` from `./cron/index.ts` and
+  // calls it only when `NODE_ENV !== "test"`. createApp stays pure
+  // and synchronous so tests can boot it freely.
+  // --- /cron wiring ---
 
   return app;
 }
