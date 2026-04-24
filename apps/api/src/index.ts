@@ -1,5 +1,13 @@
+import { config as loadDotenv } from "dotenv";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createApp } from "./app.js";
 import { loadConfig } from "./config/index.js";
+
+// Load .env from the repo root before anything else reads process.env.
+// Monorepo layout: apps/api/{src,dist}/index.{ts,js} -> ../../../.env
+const here = fileURLToPath(import.meta.url);
+loadDotenv({ path: resolve(here, "../../../../.env") });
 import { startCron } from "./cron/index.js";
 import { createResendEmailClient } from "./email/resend.js";
 import { createFakeGhostClient } from "./ghost/fake.js";
