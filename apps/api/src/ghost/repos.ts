@@ -18,6 +18,13 @@ import type { GhostClient } from "./client.js";
 export interface ProfilesRepo {
   getByUserId(userId: UUID): Promise<Profile | null>;
   getById(id: UUID): Promise<Profile | null>;
+  /**
+   * Read every profile. Used by the weekly cron to iterate active
+   * profiles for the per-profile match pass. The "active" filter is
+   * intentionally absent here; the cron caller decides whether to
+   * narrow the list (Phase 8 keeps it simple: all profiles).
+   */
+  list(): Promise<Profile[]>;
   update(id: UUID, patch: Partial<Profile>): Promise<Profile>;
 }
 
@@ -132,6 +139,7 @@ export function createRepositories(client: GhostClient): Repositories {
         return rows[0] ?? null;
       },
       getById: (id) => client.get("profiles", id),
+      list: () => client.list("profiles"),
       update: (id, patch) => client.update("profiles", id, patch),
     },
 
