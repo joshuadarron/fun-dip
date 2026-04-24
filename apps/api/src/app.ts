@@ -8,6 +8,7 @@ import { createFakeGhostClient } from "./ghost/fake.js";
 import { createRepositories } from "./ghost/repos.js";
 import { createGraphQLRouter } from "./graphql/server.js";
 import { createProfileRouter } from "./routes/profile.js";
+import { createSubmissionsRouter } from "./routes/submissions.js";
 
 export interface AppDependencies {
   config: Config;
@@ -71,6 +72,9 @@ export function createApp(deps: AppDependencies): Express {
 
   if (deps.invoker) {
     app.use(createProfileRouter({ invoker: deps.invoker }));
+    // --- submissions ---
+    app.use(createSubmissionsRouter({ invoker: deps.invoker }));
+    // --- /submissions ---
   }
 
   return app;

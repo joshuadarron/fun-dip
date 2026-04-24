@@ -34,6 +34,11 @@ export interface SubmissionsRepo {
   getById(id: UUID): Promise<Submission | null>;
   listForProfile(profileId: UUID, status?: SubmissionStatus): Promise<Submission[]>;
   updateStatus(id: UUID, status: SubmissionStatus): Promise<Submission>;
+  findByProfileAndProgram(profileId: UUID, programId: UUID): Promise<Submission | null>;
+  create(
+    input: Omit<Submission, "id" | "created_at" | "updated_at"> & Partial<Pick<Submission, "id">>,
+  ): Promise<Submission>;
+  update(id: UUID, patch: Partial<Submission>): Promise<Submission>;
 }
 
 export interface ConversationsRepo {
@@ -102,6 +107,16 @@ export function createRepositories(client: GhostClient): Repositories {
           filter: status ? { profile_id: profileId, status } : { profile_id: profileId },
         }),
       updateStatus: (id, status) => client.update("submissions", id, { status }),
+      async findByProfileAndProgram(profileId, programId) {
+        const rows = await client.list("submissions", {
+          filter: { profile_id: profileId, program_id: programId },
+          orderBy: [{ field: "updated_at", direction: "desc" }],
+          limit: 1,
+        });
+        return rows[0] ?? null;
+      },
+      create: (input) => client.insert("submissions", input),
+      update: (id, patch) => client.update("submissions", id, patch),
     },
 
     conversations: {
