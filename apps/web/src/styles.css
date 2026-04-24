@@ -95,20 +95,24 @@ button {
 
 .brand-mark {
   display: grid;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   place-items: center;
-  border: 1px solid var(--line-strong);
-  border-radius: var(--radius-md);
-  background: var(--primary);
-  color: var(--inverse);
-  font-weight: 700;
-  letter-spacing: -0.025em;
+}
+
+.brand-mark img {
+  display: block;
+  width: 34px;
+  height: auto;
 }
 
 .nav-list {
   display: grid;
   gap: var(--space-2);
+}
+
+.nav-list-bottom {
+  margin-top: auto;
 }
 
 .nav-button {
@@ -691,8 +695,21 @@ button {
     padding: var(--space-3);
   }
 
+  .brand-mark {
+    width: 40px;
+    height: 40px;
+  }
+
+  .brand-mark img {
+    width: 34px;
+  }
+
   .nav-list {
     grid-auto-flow: column;
+  }
+
+  .nav-list-bottom {
+    margin-top: 0;
   }
 
   .workspace {
