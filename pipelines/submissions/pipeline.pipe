@@ -1,0 +1,126 @@
+{
+  "components": [
+    {
+      "id": "webhook_1",
+      "provider": "webhook",
+      "config": {
+        "hideForm": true,
+        "mode": "Source",
+        "parameters": {},
+        "type": "webhook"
+      }
+    },
+    {
+      "id": "agent_submissions",
+      "provider": "agent_deepagent",
+      "config": {
+        "advanced_mode": true,
+        "agent_description": "Constructs submission payloads from profile and program data, requests missing information via HMAC-signed callback, and submits applications via Tinyfish when complete. Pure function, idempotent, retryable per the submissions contract in .claude/docs/PIPELINE_CONTRACTS.md.",
+        "system_prompt": "You are the Fundip submissions agent. You receive a single JSON document on the questions lane shaped like { profile_id, program_id, submission_id?, action, provided_data? }. action is one of 'prefill_only' or 'submit'.\n\nAvailable tools:\n1. Ghost MCP client (read/write Ghost rows for profiles, programs, program_pages, profile_narratives, submissions, program_matches).\n2. tool_tinyfish: Tinyfish browser automation in 'application' mode. ONLY call this when action=submit AND the submission is in 'ready' state (no missing fields) AND program.apply_method='form' AND program.apply_url is present.\n3. tool_http_request: emit HMAC-signed callbacks to the Fundip app layer. Set Content-Type: application/json. Sign the raw JSON body with HMAC-SHA256 using ${CALLBACK_SHARED_SECRET} and put the result in the X-Fundip-Signature header as 'sha256=<hex>'. Base URL: ${APP_BASE_URL}.\n\nState machine rules (do not violate):\n- First invocation (submission_id absent): read profile, program, profile_narratives. Parse program application fields from program_pages. Generate prefilled_fields and missing_fields. INSERT a submissions row with status='prefilled' if missing_fields is empty, else status='awaiting_user_input'. If action='submit' and nothing missing, transition to 'ready' then call Tinyfish.\n- Continuation (submission_id present): read existing row. Merge provided_data into existing provided_data. Recompute prefilled_fields and missing_fields. UPDATE the submissions row. If action='submit' and nothing missing, transition to 'ready' then call Tinyfish.\n- Idempotency: if the existing row is already status='submitted' and action='submit', DO NOT re-call Tinyfish. Return the existing submitted result.\n- Terminal rule: never transition a 'submitted' row backward. action='prefill_only' on a submitted row returns the submitted output unchanged.\n- Email / website-only programs: for program.apply_method in {'email', 'website_info_only'}, action='submit' is a DOCUMENTED NO-OP. Do not call Tinyfish. Update the row to status='submitted' with confirmation_ref=null and response_text explaining that this program requires manual application. Still emit submission_submitted callback.\n- After a successful 'submitted' transition, update the program_matches row for (profile_id, program_id) to status='applied' if such a row exists. Do not create one.\n\nCallbacks (emit via tool_http_request with HMAC):\n- POST ${APP_BASE_URL}/internal/callbacks/submission-needs-input when status is 'awaiting_user_input'. Body: { submission_id, profile_id, program_id, missing_fields }.\n- POST ${APP_BASE_URL}/internal/callbacks/submission-submitted when status transitions to 'submitted'. Body: { submission_id, profile_id, program_id, confirmation_ref }.\n\nOutput: a single JSON object that matches SubmissionsPipelineOutput (discriminated on status: 'prefilled' | 'needs_input' | 'submitted' | 'error'). Emit it via the answers lane as a JSON string.\n\nNo em-dashes anywhere in the output. Use commas, colons, periods, or parentheses.",
+        "parameters": {}
+      },
+      "input": [
+        {
+          "lane": "questions",
+          "from": "webhook_1"
+        }
+      ]
+    },
+    {
+      "id": "llm_1",
+      "provider": "llm_openai",
+      "config": {
+        "profile": "openai-4o",
+        "openai-4o": {
+          "apikey": "${ROCKETRIDE_OPENAI_KEY}",
+          "model": "gpt-4o-mini"
+        },
+        "parameters": {}
+      },
+      "control": [
+        {
+          "classType": "llm",
+          "from": "agent_submissions"
+        }
+      ]
+    },
+    {
+      "id": "mcp_ghost",
+      "provider": "mcp_client",
+      "config": {
+        "type": "mcp_client",
+        "serverName": "ghost",
+        "transport": "streamable-http",
+        "http": {
+          "endpoint": "${ROCKETRIDE_GHOST_MCP_URL}",
+          "bearer": "${ROCKETRIDE_GHOST_MCP_TOKEN}",
+          "headers": {}
+        }
+      },
+      "control": [
+        {
+          "classType": "tool",
+          "from": "agent_submissions"
+        }
+      ]
+    },
+    {
+      "id": "tool_tinyfish_1",
+      "provider": "tool_tinyfish",
+      "config": {
+        "type": "tool_tinyfish",
+        "mode": "application",
+        "parameters": {
+          "application_notes": "Submit the form at the provided apply_url using the supplied prefilled_fields. Return confirmation_ref if available."
+        }
+      },
+      "control": [
+        {
+          "classType": "tool",
+          "from": "agent_submissions"
+        }
+      ]
+    },
+    {
+      "id": "tool_http_1",
+      "provider": "tool_http_request",
+      "config": {
+        "type": "tool_http_request",
+        "parameters": {
+          "description": "HMAC-signed callback emitter. Sign raw JSON body with HMAC-SHA256 using ${CALLBACK_SHARED_SECRET}. Header: X-Fundip-Signature: sha256=<hex>.",
+          "default_headers": {
+            "Content-Type": "application/json"
+          },
+          "signing": {
+            "algorithm": "hmac-sha256",
+            "secret": "${CALLBACK_SHARED_SECRET}",
+            "header": "X-Fundip-Signature",
+            "format": "sha256=<hex>"
+          }
+        }
+      },
+      "control": [
+        {
+          "classType": "tool",
+          "from": "agent_submissions"
+        }
+      ]
+    },
+    {
+      "id": "response_1",
+      "provider": "response_answers",
+      "config": {
+        "laneName": "answers"
+      },
+      "input": [
+        {
+          "lane": "answers",
+          "from": "agent_submissions"
+        }
+      ]
+    }
+  ],
+  "project_id": "c1f2e3d4-5a6b-4c7d-8e9f-0a1b2c3d4e5f",
+  "viewport": { "x": 0, "y": 0, "zoom": 1 },
+  "version": 1
+}

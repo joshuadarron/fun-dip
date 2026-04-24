@@ -9,6 +9,7 @@ import { createRepositories } from "./ghost/repos.js";
 import { createGraphQLRouter } from "./graphql/server.js";
 import { createProfileRouter } from "./routes/profile.js";
 import { createScrapingRouter } from "./routes/scraping.js";
+import { createSubmissionsRouter } from "./routes/submissions.js";
 
 export interface AppDependencies {
   config: Config;
@@ -80,6 +81,11 @@ export function createApp(deps: AppDependencies): Express {
     // route honors whatever the caller sends; chat-side enforcement is the
     // chat pipeline's responsibility.
     app.use(createScrapingRouter({ invoker: deps.invoker }));
+    // --- /scraping ---
+
+    // --- submissions ---
+    app.use(createSubmissionsRouter({ invoker: deps.invoker }));
+    // --- /submissions ---
   }
 
   return app;
