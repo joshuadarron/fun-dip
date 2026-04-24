@@ -1,0 +1,21 @@
+{
+  "name": "@fundip/pipeline-scraping",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Fundip scraping pipeline: RocketRide pipeline definition, logic tests, and check script.",
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "check": "tsx check.ts"
+  },
+  "dependencies": {
+    "@fundip/shared-types": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "tsx": "^4.19.2",
+    "vitest": "^2.1.6"
+  }
+}

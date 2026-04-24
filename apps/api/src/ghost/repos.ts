@@ -6,6 +6,7 @@ import type {
   Profile,
   Program,
   ProgramMatch,
+  ProgramPage,
   Selection,
   Submission,
   SubmissionStatus,
@@ -23,11 +24,44 @@ export interface ProfilesRepo {
 export interface ProgramsRepo {
   list(): Promise<Program[]>;
   getBySourceUrl(url: string): Promise<Program | null>;
+  /**
+   * Create or update a program row keyed by `source_url`. Used by the
+   * scraping pipeline's `full_scrape` path: each scraped page produces
+   * structured fields that are merged onto any existing row, preserving
+   * `first_seen_at` and bumping `last_scraped_at`.
+   */
+  upsertBySourceUrl(url: string, data: Partial<Program>): Promise<Program>;
 }
 
 export interface MatchesRepo {
   listForProfile(profileId: UUID): Promise<ProgramMatch[]>;
   updateStatus(id: UUID, status: ProgramMatch["status"]): Promise<ProgramMatch>;
+  /**
+   * Create or update a `program_matches` row keyed by
+   * `(profile_id, program_id)`. Preserves `status` when the existing row
+   * has progressed past the initial surfaced stage (`dismissed`,
+   * `interested`, `applied`). Only resets status to the caller-provided
+   * value (or `new`) when the prior status was `new` or `surfaced`. See
+   * `pipelines/scraping/AGENTS.md`.
+   */
+  upsertByPair(
+    profileId: UUID,
+    programId: UUID,
+    data: Partial<Omit<ProgramMatch, "id" | "profile_id" | "program_id">>,
+  ): Promise<ProgramMatch>;
+}
+
+export interface ProgramPagesRepo {
+  /**
+   * Replace all chunks for a given `source_url`: delete existing rows,
+   * insert the provided chunk list. Used when a page is re-scraped so we
+   * do not accumulate stale content alongside the fresh extraction.
+   */
+  replaceForUrl(
+    sourceUrl: string,
+    chunks: Array<Omit<ProgramPage, "id" | "source_url">>,
+  ): Promise<ProgramPage[]>;
+  listByProgram(programId: UUID): Promise<ProgramPage[]>;
 }
 
 export interface SubmissionsRepo {
@@ -57,6 +91,7 @@ export interface Repositories {
   profiles: ProfilesRepo;
   programs: ProgramsRepo;
   matches: MatchesRepo;
+  programPages: ProgramPagesRepo;
   submissions: SubmissionsRepo;
   conversations: ConversationsRepo;
   messages: MessagesRepo;
@@ -84,6 +119,40 @@ export function createRepositories(client: GhostClient): Repositories {
         const rows = await client.list("programs", { filter: { source_url: url }, limit: 1 });
         return rows[0] ?? null;
       },
+      async upsertBySourceUrl(url, data) {
+        const now = new Date().toISOString();
+        const existing = await client.list("programs", {
+          filter: { source_url: url },
+          limit: 1,
+        });
+        if (existing[0]) {
+          const patch: Partial<Program> = {
+            ...data,
+            source_url: url,
+            last_scraped_at: data.last_scraped_at ?? now,
+          };
+          return client.update("programs", existing[0].id, patch);
+        }
+        // Build the row using the provided fields plus sensible defaults for
+        // the required shape. Unknown text fields default to "" so the Ghost
+        // row remains valid; arrays default to [].
+        const row: Omit<Program, "id"> = {
+          source_url: url,
+          name: data.name ?? "",
+          provider: data.provider ?? "",
+          description: data.description ?? "",
+          requirements: data.requirements ?? "",
+          apply_method: data.apply_method ?? "website_info_only",
+          apply_url: data.apply_url ?? null,
+          deadline: data.deadline ?? null,
+          stage_fit: data.stage_fit ?? [],
+          market_fit: data.market_fit ?? [],
+          geo_scope: data.geo_scope ?? [],
+          last_scraped_at: data.last_scraped_at ?? now,
+          first_seen_at: data.first_seen_at ?? now,
+        };
+        return client.insert("programs", row);
+      },
     },
 
     matches: {
@@ -93,6 +162,59 @@ export function createRepositories(client: GhostClient): Repositories {
           orderBy: [{ field: "score", direction: "desc" }],
         }),
       updateStatus: (id, status) => client.update("program_matches", id, { status }),
+      async upsertByPair(profileId, programId, data) {
+        const now = new Date().toISOString();
+        const existing = await client.list("program_matches", {
+          filter: { profile_id: profileId, program_id: programId },
+          limit: 1,
+        });
+        if (existing[0]) {
+          const prior = existing[0];
+          // Preserve terminal/engaged statuses. Only `new` or `surfaced` get
+          // reset to the incoming status (or remain `new` by default).
+          const preserve =
+            prior.status === "dismissed" ||
+            prior.status === "interested" ||
+            prior.status === "applied";
+          const nextStatus = preserve ? prior.status : (data.status ?? "new");
+          const patch: Partial<ProgramMatch> = {
+            ...data,
+            status: nextStatus,
+            matched_at: data.matched_at ?? now,
+          };
+          return client.update("program_matches", prior.id, patch);
+        }
+        const row: Omit<ProgramMatch, "id"> = {
+          profile_id: profileId,
+          program_id: programId,
+          score: data.score ?? 0,
+          tier: data.tier ?? "cold",
+          positioning_summary: data.positioning_summary ?? "",
+          status: data.status ?? "new",
+          rationale: data.rationale ?? "",
+          matched_at: data.matched_at ?? now,
+        };
+        return client.insert("program_matches", row);
+      },
+    },
+
+    programPages: {
+      async replaceForUrl(sourceUrl, chunks) {
+        const existing = await client.list("program_pages", {
+          filter: { source_url: sourceUrl },
+        });
+        for (const row of existing) {
+          await client.delete("program_pages", row.id);
+        }
+        const inserted: ProgramPage[] = [];
+        for (const chunk of chunks) {
+          const row = await client.insert("program_pages", { ...chunk, source_url: sourceUrl });
+          inserted.push(row);
+        }
+        return inserted;
+      },
+      listByProgram: (programId) =>
+        client.list("program_pages", { filter: { program_id: programId } }),
     },
 
     submissions: {

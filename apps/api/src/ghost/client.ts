@@ -74,4 +74,11 @@ export interface GhostClient {
     on: Partial<GhostCollectionRow<C>>,
     row: Partial<GhostCollectionRow<C>>,
   ): Promise<GhostCollectionRow<C>>;
+
+  /**
+   * Remove a single row by id. Used by the program_pages replace flow in
+   * the scraping pipeline. Returns true if a row was removed, false if no
+   * row with the given id existed (idempotent).
+   */
+  delete<C extends GhostCollection>(collection: C, id: UUID): Promise<boolean>;
 }

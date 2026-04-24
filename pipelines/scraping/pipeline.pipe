@@ -1,0 +1,147 @@
+{
+  "components": [
+    {
+      "id": "webhook_1",
+      "provider": "webhook",
+      "config": {
+        "hideForm": true,
+        "mode": "Source",
+        "parameters": {},
+        "type": "webhook"
+      }
+    },
+    {
+      "id": "agent_full_scrape",
+      "provider": "agent_deepagent",
+      "config": {
+        "advanced_mode": true,
+        "agent_description": "Fundip scraping pipeline, full_scrape path. Reads funding-program source URLs via Tinyfish online_browse, upserts programs in Ghost, chunks and embeds page content into program_pages. Inactive for mode=match invocations.",
+        "system_prompt": "You are the Fundip scraping agent, full_scrape subgraph. Input on the questions lane is a JSON document matching ScrapingPipelineInput.\n\nBranching rule (critical):\n- If input.mode is not 'full_scrape', return the sentinel { \"status\": \"noop\", \"mode\": \"full_scrape\" } immediately on the answers lane and do nothing else. Do not call any tool. The match subgraph handles mode='match'.\n\nWhen input.mode is 'full_scrape':\n1. Resolve source URLs: use input.source_urls if present, otherwise fall back to the configured known list from the agent environment.\n2. For each source URL, call the Tinyfish tool in online_browse mode to fetch and parse. Skip pages that require auth. Handle JS rendering and simple multi-step navigation.\n3. For each funding program found, extract structured fields per the Ghost programs collection shape: name, provider, description, requirements, apply_method ('form'|'email'|'website_info_only'), apply_url (null unless apply_method='form'), deadline (nullable ISO timestamp), stage_fit (enum[]: idea, pre_seed, seed, series_a, series_b_plus), market_fit (string[]), geo_scope (string[]).\n4. Use the Ghost MCP tools to upsert into 'programs' by source_url. Preserve first_seen_at on updates; set last_scraped_at to the current ISO timestamp.\n5. Chunk the raw page content into segments of 512-1024 characters. Generate embeddings and call the Ghost MCP 'program_pages' write path to replace the rows for the given source_url (delete existing chunks for that url, insert fresh ones). If re-scraping produced identical content, still bump scraped_at.\n6. Emit a single JSON object on the answers lane matching ScrapingFullScrapeOutput: { status: 'ok', mode: 'full_scrape', programs_added, programs_updated, pages_scraped }. Emit it as a JSON string.\n\nNever write to program_matches, submissions, profiles, conversations, messages, profile_narratives, or conversation_embeddings in this subgraph. No em-dashes in any text. Use commas, periods, or colons.",
+        "parameters": {}
+      },
+      "input": [
+        {
+          "lane": "questions",
+          "from": "webhook_1"
+        }
+      ]
+    },
+    {
+      "id": "agent_match",
+      "provider": "agent_deepagent",
+      "config": {
+        "advanced_mode": true,
+        "agent_description": "Fundip scraping pipeline, match path. Scores the current 'programs' collection against a single profile, writes program_matches, and fires the matches_ready HTTP callback when emit_callback is true. Inactive for mode=full_scrape invocations.",
+        "system_prompt": "You are the Fundip scraping agent, match subgraph. Input on the questions lane is a JSON document matching ScrapingPipelineInput.\n\nBranching rule (critical):\n- If input.mode is not 'match', return the sentinel { \"status\": \"noop\", \"mode\": \"match\" } immediately on the answers lane and do nothing else. Do not call any tool. The full_scrape subgraph handles mode='full_scrape'.\n- You do NOT have the Tinyfish tool. Never attempt web browsing.\n\nWhen input.mode is 'match':\n1. Read the profile via Ghost MCP: list 'profiles' filtered by id=input.profile_id. Stop with an error envelope if not found.\n2. Pre-filter candidate programs deterministically BEFORE any scoring to save tokens. Issue a Ghost MCP list against 'programs' filtered by the profile's stage (stage_fit contains profile.stage) and geo (geo_scope contains profile.location or is empty/global). Do not score rows that fail these hard filters; skip them entirely.\n3. For each surviving candidate, compute an integer 0-100 score. Signals (all bounded, summed and clamped):\n   - Stage alignment: +20 if profile.stage is listed in stage_fit, else 0.\n   - Geo alignment: +15 if profile.location matches any geo_scope entry, +10 if geo_scope is empty/global, 0 otherwise.\n   - Market alignment: up to +25 based on overlap of profile.market and program.market_fit, 0 if no signal or sparse profile.\n   - Goal alignment: up to +30 based on overlap between profile.looking_for/profile.goals and the program description/requirements. Use the LLM for this soft signal only.\n   - Deadline proximity: -20 if deadline is in the past (exclude from results), +10 if deadline is within 30 days, 0 otherwise.\n   Sparse profiles (no stage, no market, empty looking_for) must not produce high scores. Cap any sparse-profile score at 40.\n4. Derive tier from score: >=75 -> 'hot', 40-74 -> 'warm', <40 -> 'cold'.\n5. Write a 3 to 5 sentence positioning_summary describing how this profile fits this program. No em-dashes; use commas, periods, or colons.\n6. For each scored program, upsert a row into 'program_matches' keyed on (profile_id, program_id). On update, preserve status when the existing row's status is 'dismissed', 'interested', or 'applied'. Otherwise set status='new' (from prior 'new' or 'surfaced'). Always overwrite score, tier, positioning_summary, rationale, and matched_at.\n7. If input.emit_callback is true (default true when the key is absent), POST the matches_ready callback via the HTTP tool to ${ROCKETRIDE_CALLBACK_URL}${ROCKETRIDE_CALLBACK_MATCHES_READY_PATH}. Body: { profile_id, match_count, max_tier }. Headers: Content-Type: application/json, X-Fundip-Signature: sha256=<hex HMAC of the JSON body using the shared secret ${ROCKETRIDE_CALLBACK_SHARED_SECRET}>. If input.emit_callback is explicitly false, do not POST.\n   FALLBACK NOTE: if the RocketRide HTTP tool cannot conditionally skip a call, the agent should still honor emit_callback=false by returning early before invoking the tool. Do not emit the callback in the chat-driven path.\n8. Emit the final ScrapingMatchOutput on the answers lane: { status: 'ok', mode: 'match', profile_id, matches: [{ program_match_id, program_id, score, tier, positioning_summary }, ...] }. Emit it as a JSON string.\n\nNever write to programs, program_pages, submissions, or any conversation-related collection in this subgraph. No em-dashes.",
+        "parameters": {}
+      },
+      "input": [
+        {
+          "lane": "questions",
+          "from": "webhook_1"
+        }
+      ]
+    },
+    {
+      "id": "llm_shared",
+      "provider": "llm_openai",
+      "config": {
+        "profile": "openai-4o",
+        "openai-4o": {
+          "apikey": "${ROCKETRIDE_OPENAI_KEY}",
+          "model": "gpt-4o-mini"
+        },
+        "parameters": {}
+      },
+      "control": [
+        {
+          "classType": "llm",
+          "from": "agent_full_scrape"
+        },
+        {
+          "classType": "llm",
+          "from": "agent_match"
+        }
+      ]
+    },
+    {
+      "id": "mcp_ghost",
+      "provider": "mcp_client",
+      "config": {
+        "type": "mcp_client",
+        "serverName": "ghost",
+        "transport": "streamable-http",
+        "http": {
+          "endpoint": "${ROCKETRIDE_GHOST_MCP_URL}",
+          "bearer": "${ROCKETRIDE_GHOST_MCP_TOKEN}",
+          "headers": {}
+        }
+      },
+      "control": [
+        {
+          "classType": "tool",
+          "from": "agent_full_scrape"
+        },
+        {
+          "classType": "tool",
+          "from": "agent_match"
+        }
+      ]
+    },
+    {
+      "id": "tool_tinyfish",
+      "provider": "tool_tinyfish",
+      "config": {
+        "type": "tool_tinyfish",
+        "mode": "online_browse",
+        "apikey": "${ROCKETRIDE_TINYFISH_KEY}",
+        "parameters": {}
+      },
+      "control": [
+        {
+          "classType": "tool",
+          "from": "agent_full_scrape"
+        }
+      ]
+    },
+    {
+      "id": "tool_http_callback",
+      "provider": "tool_http_request",
+      "config": {
+        "type": "tool_http_request",
+        "env": {
+          "ROCKETRIDE_CALLBACK_URL": "${ROCKETRIDE_CALLBACK_URL}",
+          "ROCKETRIDE_CALLBACK_MATCHES_READY_PATH": "${ROCKETRIDE_CALLBACK_MATCHES_READY_PATH}",
+          "ROCKETRIDE_CALLBACK_SHARED_SECRET": "${ROCKETRIDE_CALLBACK_SHARED_SECRET}"
+        },
+        "parameters": {}
+      },
+      "control": [
+        {
+          "classType": "tool",
+          "from": "agent_match"
+        }
+      ]
+    },
+    {
+      "id": "response_1",
+      "provider": "response_answers",
+      "config": {
+        "laneName": "answers"
+      },
+      "input": [
+        {
+          "lane": "answers",
+          "from": "agent_full_scrape"
+        },
+        {
+          "lane": "answers",
+          "from": "agent_match"
+        }
+      ]
+    }
+  ],
+  "project_id": "c2f7a81d-5e64-4b92-a1c0-ef8d3b4a9c12",
+  "viewport": { "x": 0, "y": 0, "zoom": 1 },
+  "version": 1
+}

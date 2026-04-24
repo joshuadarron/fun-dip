@@ -23,6 +23,7 @@ export const GHOST_MCP_TOOLS = {
   insert: "insert_record",
   update: "update_record",
   upsert: "upsert_record",
+  delete: "delete_record",
 } as const;
 
 /**
@@ -165,6 +166,15 @@ function wrapMcp(transport: McpClientLike): GhostClient {
       row: Partial<GhostCollectionRow<C>>,
     ): Promise<GhostCollectionRow<C>> {
       return callJson<GhostCollectionRow<C>>(GHOST_MCP_TOOLS.upsert, { collection, on, row });
+    },
+
+    async delete<C extends GhostCollection>(collection: C, id: UUID): Promise<boolean> {
+      const result = await callJson<{ deleted?: boolean } | boolean>(GHOST_MCP_TOOLS.delete, {
+        collection,
+        id,
+      });
+      if (typeof result === "boolean") return result;
+      return result?.deleted ?? true;
     },
   };
 }

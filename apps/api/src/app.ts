@@ -8,6 +8,7 @@ import { createFakeGhostClient } from "./ghost/fake.js";
 import { createRepositories } from "./ghost/repos.js";
 import { createGraphQLRouter } from "./graphql/server.js";
 import { createProfileRouter } from "./routes/profile.js";
+import { createScrapingRouter } from "./routes/scraping.js";
 
 export interface AppDependencies {
   config: Config;
@@ -71,6 +72,14 @@ export function createApp(deps: AppDependencies): Express {
 
   if (deps.invoker) {
     app.use(createProfileRouter({ invoker: deps.invoker }));
+
+    // --- scraping ---
+    // Phase 5. Scraping pipeline is invoked by: Phase 8 cron (full_scrape
+    // Sundays + per-profile match pass) and, in Phase 7, by the chat
+    // pipeline's tool wrapper (mode=match only, emit_callback=false). The
+    // route honors whatever the caller sends; chat-side enforcement is the
+    // chat pipeline's responsibility.
+    app.use(createScrapingRouter({ invoker: deps.invoker }));
   }
 
   return app;

@@ -168,6 +168,14 @@ export function createFakeGhostClient(seed: GhostFakeSeed = {}): GhostClient & {
       return api.insert(collection, merged) as Promise<GhostCollectionRow<C>>;
     },
 
+    async delete<C extends GhostCollection>(collection: C, id: string): Promise<boolean> {
+      const table = tableOf(collection);
+      const idx = table.findIndex((r) => r.id === id);
+      if (idx === -1) return false;
+      table.splice(idx, 1);
+      return true;
+    },
+
     all<C extends GhostCollection>(collection: C): GhostCollectionRow<C>[] {
       return tableOf(collection).map((r) => ({ ...r })) as unknown as GhostCollectionRow<C>[];
     },
