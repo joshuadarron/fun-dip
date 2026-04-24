@@ -21,6 +21,7 @@
     "@fundip/shared-types": "workspace:*"
   },
   "devDependencies": {
+    "@types/node": "^22.7.0",
     "vitest": "^2.1.6"
   }
 }
