@@ -18,7 +18,7 @@ export function NavRail() {
   return (
     <aside className="nav-rail" aria-label="Primary navigation">
       <div className="brand-mark">
-        <span>F</span>
+        <img src="/images/fundip-icon.svg" alt="Fundip" />
       </div>
       <nav className="nav-list">
         {navItems.map((item) => (
